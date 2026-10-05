@@ -77,7 +77,7 @@ The core portfolio and training settings are in [src/utils.py](src/utils.py), in
 ```python
 self.indices = [...]
 self.weights = np.ones(len(self.indices)) / len(self.indices)
-self.latent_dim = 12
+self.latent_dim = 18
 self.hidden_dim = 128
 self.n_epochs = 120
 self.batch_size = 64

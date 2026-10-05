@@ -1,24 +1,11 @@
-"""
-Value at Risk (VaR) calculation module
-"""
+"""VaR, CVaR and Kupiec backtest on portfolio returns (VaR is reported as a negative return)."""
 import numpy as np
 import pandas as pd
 from scipy import stats
 
 
 def kupiec_test(returns, var_estimate, confidence_level, alpha=0.05):
-    """
-    Perform the Kupiec POF backtest for a VaR estimate.
-
-    Args:
-        returns: array-like of portfolio returns
-        var_estimate: VaR estimate used for the test
-        confidence_level: confidence level of the VaR estimate (e.g. 0.95)
-        alpha: significance level for the test
-
-    Returns:
-        Dictionary with exceedance count, rates, LR statistic, p-value, and conclusion
-    """
+    """Kupiec POF test: LR statistic on the violation rate, chi2(1) under H0."""
     returns = np.asarray(returns, dtype=float).ravel()
     if len(returns) == 0:
         raise ValueError("returns must not be empty")
@@ -54,101 +41,38 @@ def kupiec_test(returns, var_estimate, confidence_level, alpha=0.05):
 
 
 class VaRCalculator:
-    """Calculate Value at Risk for portfolio"""
-    
+
     def __init__(self, portfolio_returns, weights):
-        """
-        Initialize VaR calculator
-        
-        Args:
-            portfolio_returns: numpy array of portfolio returns (n_samples,)
-            weights: numpy array of asset weights (n_assets,)
-        """
         self.portfolio_returns = portfolio_returns
-        self.weights = weights / np.sum(weights)  # Normalize weights
-        
+        self.weights = weights / np.sum(weights)
+
     def calculate_portfolio_returns(self, asset_returns):
-        """
-        Calculate portfolio returns from individual asset returns
-        
-        Args:
-            asset_returns: numpy array of shape (n_samples, n_assets)
-            
-        Returns:
-            portfolio returns of shape (n_samples,)
-        """
         return np.dot(asset_returns, self.weights)
-    
+
     def historical_var(self, confidence_level=0.95):
-        """
-        Calculate historical VaR
-        
-        Args:
-            confidence_level: confidence level (e.g., 0.95, 0.99)
-            
-        Returns:
-            VaR value
-        """
         var = np.percentile(self.portfolio_returns, (1 - confidence_level) * 100)
         return var
-    
+
     def parametric_var(self, confidence_level=0.95):
-        """
-        Calculate parametric (normal) VaR
-        
-        Args:
-            confidence_level: confidence level (e.g., 0.95, 0.99)
-            
-        Returns:
-            VaR value
-        """
         mu = np.mean(self.portfolio_returns)
         sigma = np.std(self.portfolio_returns)
         z_score = stats.norm.ppf(1 - confidence_level)
         var = mu + z_score * sigma
         return var
-    
+
     def monte_carlo_var(self, n_scenarios=10000, confidence_level=0.95):
-        """
-        Monte Carlo VaR (already computed from simulated returns)
-        
-        Args:
-            n_scenarios: number of scenarios (for reference)
-            confidence_level: confidence level
-            
-        Returns:
-            VaR value
-        """
-        # Use historical percentile on the provided returns
+        # same as historical_var: the returns passed in are already simulated
         var = np.percentile(self.portfolio_returns, (1 - confidence_level) * 100)
         return var
-    
+
     def cvar_expected_shortfall(self, confidence_level=0.95):
-        """
-        Calculate Conditional VaR (CVaR) / Expected Shortfall
-        
-        Args:
-            confidence_level: confidence level
-            
-        Returns:
-            CVaR value
-        """
         var = self.historical_var(confidence_level)
         cvar = np.mean(self.portfolio_returns[self.portfolio_returns <= var])
         return cvar
-    
+
     def var_summary(self, confidence_levels=[0.90, 0.95, 0.99]):
-        """
-        Generate comprehensive VaR summary
-        
-        Args:
-            confidence_levels: list of confidence levels
-            
-        Returns:
-            DataFrame with VaR statistics
-        """
         summary = []
-        
+
         for cl in confidence_levels:
             summary.append({
                 'Confidence Level': f"{cl*100:.0f}%",
@@ -156,20 +80,10 @@ class VaRCalculator:
                 'Parametric VaR': self.parametric_var(cl),
                 'CVaR': self.cvar_expected_shortfall(cl)
             })
-        
+
         return pd.DataFrame(summary)
 
     def kupiec_test_summary(self, confidence_levels=None, alpha=0.05):
-        """
-        Apply the Kupiec POF backtest to historical and parametric VaR estimates.
-
-        Args:
-            confidence_levels: list of confidence levels to test
-            alpha: significance level for the hypothesis test
-
-        Returns:
-            DataFrame with Kupiec test results for each method and confidence level
-        """
         if confidence_levels is None:
             confidence_levels = [0.95, 0.99]
 
@@ -195,71 +109,40 @@ class VaRCalculator:
 
 
 class PortfolioVaRAnalyzer:
-    """Analyze VaR for multiple scenarios and compare methods"""
-    
+
     def __init__(self, weights):
-        """
-        Initialize analyzer
-        
-        Args:
-            weights: portfolio weights
-        """
         self.weights = weights
-        
+
     def analyze_scenarios(self, scenarios_dict, confidence_levels=[0.95, 0.99]):
-        """
-        Analyze VaR across different return scenarios
-        
-        Args:
-            scenarios_dict: dict with scenario names and returns arrays
-            confidence_levels: list of confidence levels
-            
-        Returns:
-            dict with VaR results for each scenario
-        """
         results = {}
-        
+
         for scenario_name, returns in scenarios_dict.items():
             portfolio_returns = np.dot(returns, self.weights)
             calc = VaRCalculator(portfolio_returns, self.weights)
-            
+
             results[scenario_name] = {
                 'mean_return': np.mean(portfolio_returns),
                 'std_return': np.std(portfolio_returns),
                 'var_summary': calc.var_summary(confidence_levels)
             }
-        
+
         return results
-    
+
     def backtest_var(self, historical_returns, simulated_returns, confidence_level=0.95, window_size=252):
-        """
-        Backtest VaR by comparing forecasts with actual returns
-        
-        Args:
-            historical_returns: numpy array of shape (n_samples, n_assets)
-            simulated_returns: numpy array of shape (n_scenarios, n_assets)
-            confidence_level: confidence level
-            window_size: rolling window size
-            
-        Returns:
-            backtest results
-        """
         portfolio_returns = np.dot(historical_returns, self.weights)
-        
-        # Calculate VaR on simulated scenarios
+
+        # VaR estimated on the simulated scenarios
         portfolio_simulated = np.dot(simulated_returns, self.weights)
         calculator = VaRCalculator(portfolio_simulated, self.weights)
         var_forecast = calculator.historical_var(confidence_level)
-        
-        # Count exceedances
+
         n_observations = len(portfolio_returns)
         n_exceedances = np.sum(portfolio_returns < var_forecast)
         expected_exceedances = n_observations * (1 - confidence_level)
-        
-        # Kupiec POF test
+
         exceedance_rate = n_exceedances / n_observations
         expected_rate = 1 - confidence_level
-        
+
         results = {
             'var_forecast': var_forecast,
             'n_exceedances': n_exceedances,
@@ -268,5 +151,5 @@ class PortfolioVaRAnalyzer:
             'expected_rate': expected_rate,
             'observations': n_observations
         }
-        
+
         return results
